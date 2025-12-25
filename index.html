@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Your Starry Path</title>
+    <style>
+        :root {
+            --kuromi-purple: #e9d5ff; 
+            --kuromi-pink: #fbcce3;
+            --kuromi-dark: #581c87;   
+            --kuromi-accent: #c084fc; 
+            --white: #ffffff;
+            --bg-gradient: radial-gradient(circle, #f5f3ff 0%, #ddd6fe 100%);
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #f5f3ff;
+            font-family: 'Segoe UI', 'Comic Sans MS', sans-serif;
+            touch-action: none;
+        }
+
+        #viewport {
+            width: 100vw; height: 100vh;
+            perspective: 1500px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: var(--bg-gradient);
+            cursor: grab;
+        }
+        #viewport:active { cursor: grabbing; }
+
+        #world-offset {
+            position: absolute;
+            transform-style: preserve-3d;
+            transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        #zoom-layer {
+            transform-style: preserve-3d;
+            transition: transform 0.3s ease-out;
+            transform: scale(1);
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(5, 80px); 
+            gap: 15px;
+            transform: rotateX(50deg) rotateZ(-5deg);
+            transform-style: preserve-3d;
+            padding: 50px;
+            padding-bottom: 500px; 
+        }
+
+        @media (min-width: 768px) {
+            #board { grid-template-columns: repeat(10, 110px); gap: 20px; }
+        }
+
+        .world-title {
+            grid-column: span 10;
+            text-align: center;
+            transform: translateZ(50px);
+            margin-bottom: 40px;
+            pointer-events: none;
+        }
+
+        .world-title h1 {
+            font-size: 3.5rem; color: var(--kuromi-dark);
+            margin: 0; text-shadow: 4px 4px 0px white;
+        }
+
+        .progress-pill {
+            display: inline-block; background: white;
+            padding: 8px 20px; border-radius: 30px;
+            border: 4px solid var(--kuromi-accent);
+            font-weight: bold; color: var(--kuromi-dark);
+            margin-top: 10px; box-shadow: 0 6px 0 var(--kuromi-accent);
+        }
+
+        .tile {
+            width: 110px; height: 110px;
+            background: white; border: 4px solid var(--kuromi-purple);
+            border-radius: 20px; display: flex; align-items: center; justify-content: center;
+            font-size: 24px; font-weight: bold; color: var(--kuromi-dark);
+            box-shadow: 0 8px 0 var(--kuromi-purple);
+            position: relative; transition: all 0.5s ease;
+        }
+
+        .tile.special { border-color: var(--kuromi-pink); background: #fff5f9; box-shadow: 0 8px 0 #f8b9d5; }
+        .tile.special.deactivated { opacity: 0.5; filter: grayscale(1); box-shadow: 0 4px 0 #ccc; }
+        .tile.trap { border-color: #a78bfa; background: #faf5ff; box-shadow: 0 8px 0 #8b5cf6; }
+
+        #player {
+            width: 150px; height: 150px;
+            background: url('Regine.png') no-repeat center/contain;
+            position: absolute; z-index: 5000;
+            transform: translateY(-20px) translateX(-50px) translateZ(80px) rotateX(-50deg) rotateZ(5deg);
+            transition: left 0.4s ease, top 0.4s ease;
+            pointer-events: none;
+            filter: drop-shadow(0 20px 10px rgba(88, 28, 135, 0.2));
+        }
+
+        /* LOGGING STYLES */
+        #message-log {
+            position: fixed; top: 20px; left: 20px; width: 250px;
+            max-height: 200px; pointer-events: none; z-index: 10002;
+            overflow: hidden; display: flex; flex-direction: column-reverse;
+        }
+
+        .log-entry {
+            background: rgba(255, 255, 255, 0.9); border-left: 5px solid var(--kuromi-accent);
+            margin-bottom: 5px; padding: 8px 12px; border-radius: 0 10px 10px 0;
+            font-size: 14px; color: var(--kuromi-dark); animation: slideIn 0.3s ease-out;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+        }
+
+        @keyframes slideIn { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        .zoom-controls {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 10001;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: white;
+            padding: 20px 10px;
+            border-radius: 40px;
+            border: 4px solid var(--kuromi-accent);
+            box-shadow: 0 8px 0 var(--kuromi-purple);
+            gap: 15px;
+        }
+
+        /* Making the slider vertical */
+        #zoomRange {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 8px;
+            height: 150px; /* Length of the vertical bar */
+            background: var(--kuromi-purple);
+            border-radius: 5px;
+            outline: none;
+            /* Rotate to vertical */
+            writing-mode: bt-lr; /* Firefox */
+            appearance: slider-vertical; /* Webkit */
+        }
+
+        /* Custom Thumb (the circle part) */
+        #zoomRange::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            background: var(--kuromi-dark);
+            border: 3px solid white;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        #zoomRange::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            background: var(--kuromi-dark);
+            border: 3px solid white;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .ui {
+            position: fixed; bottom: 40px; left: 50%;
+            transform: translateX(-50%); z-index: 9999; text-align: center;
+        }
+
+        button {
+            padding: 12px 35px; font-size: 20px; font-weight: bold;
+            background: white; color: var(--kuromi-dark);
+            border: 4px solid var(--kuromi-accent); border-radius: 50px;
+            cursor: pointer; box-shadow: 0 6px 0 var(--kuromi-accent);
+            transition: 0.2s; margin: 5px; -webkit-tap-highlight-color: transparent;
+        }
+
+        button:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--kuromi-accent); }
+
+        #overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(88, 28, 135, 0.2); backdrop-filter: blur(8px); z-index: 10000;
+            justify-content: center; align-items: center;
+        }
+
+        .popup {
+            background: white; padding: 30px; border-radius: 35px; width: 85%; max-width: 450px; 
+            max-height: 70vh; text-align: center; border: 10px solid var(--kuromi-purple);
+            display: flex; flex-direction: column; box-shadow: 0 20px 0 rgba(167, 139, 250, 0.3);
+        }
+
+        #p-text {
+            font-style: italic; line-height: 1.8; font-size: 1.1rem; color: #444;
+            overflow-y: auto; padding: 0 15px; margin-bottom: 20px; text-align: left;
+            white-space: pre-wrap; scrollbar-width: thin; scrollbar-color: var(--kuromi-accent) transparent;
+        }
+
+        #bag-icon {
+            position: fixed; top: 20px; right: 20px; width: 70px; height: 70px;
+            background: white; border: 4px solid var(--kuromi-accent); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; z-index: 10001; box-shadow: 0 6px 0 var(--kuromi-accent);
+        }
+
+        #bag-count {
+            position: absolute; bottom: 0; right: 0; background: var(--kuromi-pink);
+            color: white; border-radius: 50%; width: 24px; height: 24px;
+            font-size: 14px; font-weight: bold; display: flex; align-items: center;
+            justify-content: center; border: 2px solid white;
+        }
+
+        .inventory-card {
+            background: white; width: 80%; max-width: 400px; max-height: 70vh;
+            border-radius: 30px; border: 8px solid var(--kuromi-purple);
+            padding: 30px; overflow-y: auto;
+        }
+
+        .inventory-item {
+            background: #faf5ff; border: 2px dashed var(--kuromi-accent);
+            padding: 15px; margin-bottom: 10px; border-radius: 15px;
+        }
+
+        .cloud {
+            position: absolute; font-size: 100px; opacity: 0.2;
+            filter: blur(2px); animation: moveClouds var(--d) linear infinite;
+        }
+
+        @keyframes moveClouds {
+            from { transform: translateX(-10vw) scale(var(--s)); }
+            to { transform: translateX(110vw) scale(var(--s)); }
+        }
+
+        #status {
+            margin-top:12px; font-weight:bold; color:var(--kuromi-dark); 
+            background:rgba(255,255,255,0.8); padding:5px 15px; border-radius:20px;
+        }
+    </style>
+</head>
+<body>
+    <audio id="bgm" loop><source src="cute.mp3" type="audio/mpeg"></audio>
+    <audio id="jumpSound"><source src="https://assets.mixkit.co/active_storage/sfx/2092/2092-preview.mp3" type="audio/mpeg"></audio>
+    <audio id="collectSound"><source src="https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3" type="audio/mpeg"></audio>
+
+    <div id="message-log"><div id="log-container"></div></div>
+
+    <div class="cloud-bg">
+        <div class="cloud" style="top: 10%; left: -10%; --d: 25s; --s: 1.2;">☁️</div>
+        <div class="cloud" style="top: 60%; left: -20%; --d: 30s; --s: 1.5;">☁️</div>
+    </div>
+
+    <div id="viewport">
+        <div id="world-offset">
+            <div id="zoom-layer">
+                <div id="board">
+                    <div class="world-title">
+                        <h1>Kuromi's Starry Path</h1>
+                        <div class="progress-pill" id="prog-pill">Notes found: 0 / 10</div>
+                    </div>
+                    <div id="player"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="zoom-controls">
+        <span style="font-size: 20px;">➕</span>
+        <input type="range" id="zoomRange" min="0.3" max="1.5" step="0.1" value="1" oninput="applyZoom()">
+        <span style="font-size: 20px;">➖</span>
+    </div>
+
+    <div class="ui">
+        <button id="rollBtn" onclick="roll()">Draw Your Destiny 🖤</button>
+        <button id="recenterBtn" onclick="resetPan()" style="display:none; font-size: 14px; padding: 8px 20px;">Recenter 😈</button>
+        <p id="status">Drag to pan, Scroll to zoom!</p>
+    </div>
+
+    <div id="overlay">
+        <div class="popup">
+            <h2 id="p-title" style="color:var(--kuromi-dark)"></h2>
+            <div id="p-text"></div>
+            <button onclick="closePopup()" style="margin-top: auto; width: 100%;">Keep Walking 🖤</button>
+        </div>
+    </div>
+
+    <div id="bag-icon" onclick="toggleInventory()">
+        <span style="font-size: 40px;">👜</span>
+        <div id="bag-count">0</div>
+    </div>
+
+    <div id="inventory-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(88,28,135,0.3); backdrop-filter:blur(5px); z-index:10005; justify-content:center; align-items:center;" onclick="if(event.target==this) toggleInventory()">
+        <div class="inventory-card">
+            <h2 style="color: var(--kuromi-dark); margin-top: 0;">Your Keepsakes 🖤</h2>
+            <div id="inventory-list">
+                <p style="color: #999; font-style: italic;">The bag is empty...</p>
+            </div>
+            <button onclick="toggleInventory()" style="margin-top: 20px; font-size: 16px; width: 100%;">Close Bag</button>
+        </div>
+    </div>
+
+    <script>
+        const boardSize = 50;
+        let currentPos = 0;
+        let isMoving = false;
+        let currentZoom = 1;
+        let panX = 0, panY = 0;
+        let isPanning = false;
+        let startX, startY;
+
+        const visitedSpecials = new Set();
+        const specials = {
+            5: { t: "A soul so pure.", m: `I just want to say....that you are the greatest present that I have every received in my entire life....sooo you better take care of yourself....and imma do my best to help you tooo when you need help....as long as I can do it....I definately will.` }, 
+            12: { t: "Hewwwoo", m: "I do not actually say this that much often...but hey... YOU ARE THE CUTEST, KINDEST AND THE MOST CAPABLE WOMAN THAT I HAVE EVER MET...(PUT AN EXTRA EMPAHSIS ON THE CUTEST...COZ REALLY....YOU ARE SOOOO CUTE THAT IT MAKES WANT TO HUG AND SQUEEEZE YOUUU...EHE)" },
+            18: { t: "To the Most Beautiful", m: `Sometimes I do wonder....why no one loves you unconditionally...I wonder why...no one can see your perfect demeanor...why no one sees how beautiful you are from the inside and out...ARE THEY BLIND OR SOMETHING?!...A Goddess is what you are....forever in my eyes....you will always be...mwheheheheehe.` }, 
+            25: { t: "Halfway", m: "Always Remember...if you think that no one loves you....or cares about you....I may not be as talkative as I was back then....Dont worry...because I am always here..in the sidelines...admiring your efforts...silently congratulating you in every triumphant battles you had....I am always here....silently caring and loving yah." },
+            30: { t: "My MOON", m: "Not gonna lie...You're smile is just something else....You should smile much more often...because when you do...you are stunning." }, 
+            35: { t: "My Constant Sun", m: `When the clouds gather and the day feels cold your presence...makes the sorrounding...warm and light.` },
+            42: { t: "Phrase", m: "Merrryy Christmas! Enjoying the game so far?" }, 
+            45: { t: "Hmmmm", m: `You hab mango graham?....can I hab some...?....lol just kidding!!` },
+            46: { t: "Phrase", m: "You are almost there!! You can doooo it!!." }, 
+            48: { t: "The True Gift", m: "FINAL: My gift for you is more than just a game...this is the cultivation of my appreciation and love for you...this game/website is created specifically for you....and for you only." },
+            49: { t: "THE END", m: "Mewwwwyy Christmassuuuu~.....My Midnight Sun ^^ ....mwehhehehehehe." }
+        };
+        const traps = [8, 10, 14, 20, 26, 31, 36, 40, 44, 47];
+
+        const boardEl = document.getElementById('board');
+        for (let i = 0; i < boardSize; i++) {
+            const t = document.createElement('div');
+            t.className = 'tile'; t.id = 'tile-' + i; t.innerHTML = i + 1;
+            if (specials[i]) t.classList.add('special');
+            if (traps.includes(i)) { t.classList.add('trap'); t.innerHTML = "😈"; }
+            boardEl.appendChild(t);
+        }
+
+        function addLog(message) {
+            const container = document.getElementById('log-container');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerText = `🖤 ${message}`;
+            container.prepend(entry);
+            setTimeout(() => { entry.style.opacity = '0'; setTimeout(() => entry.remove(), 500); }, 5000);
+        }
+
+        function updateInventoryUI() {
+            const list = document.getElementById('inventory-list');
+            const count = document.getElementById('bag-count');
+            count.innerText = visitedSpecials.size;
+            list.innerHTML = ''; 
+            visitedSpecials.forEach(pos => {
+                const item = specials[pos];
+                const div = document.createElement('div');
+                div.className = 'inventory-item';
+                div.innerHTML = `<b>✨ ${item.t}</b><p>"${item.m}"</p>`;
+                list.appendChild(div);
+            });
+        }
+
+        function toggleInventory() {
+            const inv = document.getElementById('inventory-overlay');
+            inv.style.display = (inv.style.display === 'flex') ? 'none' : 'flex';
+        }
+
+        function updateView(instant = false) {
+            const player = document.getElementById('player');
+            const world = document.getElementById('world-offset');
+            const targetTile = document.getElementById('tile-' + currentPos);
+            player.style.left = targetTile.offsetLeft + 5 + 'px';
+            player.style.top = targetTile.offsetTop + 5 + 'px';
+            world.style.transition = (instant || isPanning) ? 'none' : 'transform 0.8s cubic-bezier(0.25, 1, 0.5, 1)';
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2.5; 
+            const targetX = -targetTile.offsetLeft - 55;
+            const targetY = -targetTile.offsetTop - 55;
+            world.style.transform = `translateX(${centerX + targetX + panX}px) translateY(${centerY + targetY + panY}px)`;
+        }
+
+        async function roll() {
+            if (isMoving) return;
+            isMoving = true;
+            document.getElementById('rollBtn').disabled = true;
+            const bgm = document.getElementById('bgm');
+            if (bgm && bgm.paused) { bgm.volume = 0.2; bgm.play(); }
+
+            const steps = Math.floor(Math.random() * 6) + 1;
+            addLog(`Rolled a ${steps}!`);
+            document.getElementById('status').innerText = `Moving ${steps} spaces...`;
+
+            for (let i = 0; i < steps; i++) {
+                if (currentPos < boardSize - 1) {
+                    currentPos++;
+                    const jump = document.getElementById('jumpSound');
+                    if(jump) { jump.currentTime = 0; jump.play(); }
+                    updateView(); 
+                    if (specials[currentPos] && !visitedSpecials.has(currentPos)) {
+                        const collect = document.getElementById('collectSound');
+                        if(collect) collect.play();
+                        showPopup(specials[currentPos].t, specials[currentPos].m);
+                        visitedSpecials.add(currentPos);
+                        updateInventoryUI(); 
+                        document.getElementById('tile-' + currentPos).classList.add('deactivated');
+                        document.getElementById('prog-pill').innerText = `Notes found: ${visitedSpecials.size} / 11`;
+                        await waitClose();
+                    }
+                    await new Promise(r => setTimeout(r, 450));
+                }
+            }
+
+            if (traps.includes(currentPos)) {
+                addLog("A little trick! Back to start.");
+                showPopup("Kuromi's Prank", "Hehe! Going back to the beginning.");
+                await waitClose();
+                currentPos = 0;
+                updateView();
+            }
+            isMoving = false;
+            document.getElementById('rollBtn').disabled = false;
+            document.getElementById('status').innerText = "Ready to roll! 🖤";
+        }
+
+        function showPopup(t, m) {
+            document.getElementById('p-title').innerText = t;
+            document.getElementById('p-text').innerText = m;
+            document.getElementById('overlay').style.display = 'flex';
+        }
+        function closePopup() { document.getElementById('overlay').style.display = 'none'; }
+        function waitClose() { return new Promise(res => { const check = setInterval(() => { if (document.getElementById('overlay').style.display === 'none') { clearInterval(check); res(); } }, 100); }); }
+
+        const viewport = document.getElementById('viewport');
+        const handleStart = (e) => {
+            isPanning = true;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            startX = clientX - panX; startY = clientY - panY;
+            document.getElementById('world-offset').style.transition = 'none';
+        };
+        const handleMove = (e) => {
+            if (!isPanning) return;
+            if (e.touches) e.preventDefault(); 
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            panX = clientX - startX; panY = clientY - startY;
+            updateView(true);
+            if (Math.abs(panX) > 50 || Math.abs(panY) > 50) document.getElementById('recenterBtn').style.display = 'inline-block';
+        };
+        const handleEnd = () => { isPanning = false; };
+
+        viewport.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        viewport.addEventListener('touchstart', handleStart, {passive: false});
+        window.addEventListener('touchmove', handleMove, {passive: false});
+        window.addEventListener('touchend', handleEnd);
+
+        function resetPan() { panX = 0; panY = 0; document.getElementById('recenterBtn').style.display = 'none'; updateView(); }
+        function applyZoom() { currentZoom = document.getElementById('zoomRange').value; document.getElementById('zoom-layer').style.transform = `scale(${currentZoom})`; }
+
+        window.onload = () => { setTimeout(() => updateView(true), 100); };
+        window.onresize = () => updateView(true);
+    </script>
+</body>
+</html>
